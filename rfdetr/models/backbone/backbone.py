@@ -49,6 +49,7 @@ class Backbone(BackboneBase):
                  patch_size: int = 14,
                  num_windows: int = 4,
                  positional_encoding_size: bool = False,
+                 attn_implementation: str = "sdpa",
                  ):
         super().__init__()
         # an example name here would be "dinov2_base" or "dinov2_registers_windowed_base"
@@ -79,6 +80,7 @@ class Backbone(BackboneBase):
             patch_size=patch_size,
             num_windows=num_windows,
             positional_encoding_size=positional_encoding_size,
+            attn_implementation=attn_implementation,
         )
         # build encoder + projector as backbone module
         if freeze_encoder:

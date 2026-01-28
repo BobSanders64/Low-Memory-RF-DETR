@@ -37,6 +37,7 @@ from rfdetr.config import (
     RFDETRSegLargeConfig,
     RFDETRSegMediumConfig,
     RFDETRSegNanoConfig,
+    RFDETRSegIntermediateConfig,
     RFDETRSegPreviewConfig,
     RFDETRSegSmallConfig,
     RFDETRSegXLargeConfig,
@@ -585,6 +586,14 @@ class RFDETRSegSmall(RFDETR):
     size = "rfdetr-seg-small"
     def get_model_config(self, **kwargs):
         return RFDETRSegSmallConfig(**kwargs)
+
+    def get_train_config(self, **kwargs):
+        return SegmentationTrainConfig(**kwargs)
+
+class RFDETRSegIntermediate(RFDETR):
+    size = "rfdetr-seg-intermediate"
+    def get_model_config(self, **kwargs):
+        return RFDETRSegIntermediateConfig(**kwargs)
 
     def get_train_config(self, **kwargs):
         return SegmentationTrainConfig(**kwargs)

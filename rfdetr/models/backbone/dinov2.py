@@ -60,6 +60,7 @@ class DinoV2(nn.Module):
             patch_size=14,
             num_windows=4,
             positional_encoding_size=37,
+            attn_implementation="sdpa",
             ):
         super().__init__()
 
@@ -101,12 +102,17 @@ class DinoV2(nn.Module):
                 dino_config["patch_size"] = patch_size
                 load_dinov2_weights = False
 
+            # Handle xformers separately since HuggingFace doesn't recognize it
+            use_xformers = attn_implementation == "xformers"
+            hf_attn_impl = "eager" if use_xformers else attn_implementation
+
             if use_registers:
                 windowed_dino_config = WindowedDinov2WithRegistersConfig(
                     **dino_config,
                     num_windows=num_windows,
                     window_block_indexes=window_block_indexes,
                     gradient_checkpointing=gradient_checkpointing,
+                    attn_implementation=hf_attn_impl,
                 )
             else:
                 windowed_dino_config = WindowedDinov2WithRegistersConfig(
@@ -115,15 +121,37 @@ class DinoV2(nn.Module):
                     window_block_indexes=window_block_indexes,
                     num_register_tokens=0,
                     gradient_checkpointing=gradient_checkpointing,
+                    attn_implementation=hf_attn_impl,
                 )
+
             self.encoder = WindowedDinov2WithRegistersBackbone.from_pretrained(
                 name,
                 config=windowed_dino_config,
             ) if load_dinov2_weights else WindowedDinov2WithRegistersBackbone(windowed_dino_config)
 
+            # Swap attention modules to xformers after model creation
+            if use_xformers:
+                self._swap_to_xformers_attention()
+
 
         self._out_feature_channels = [size_to_width[size]] * len(out_feature_indexes)
         self._export = False
+
+    def _swap_to_xformers_attention(self):
+        """Replace attention modules with xformers memory-efficient attention."""
+        from rfdetr.models.backbone.dinov2_with_windowed_attn import (
+            Dinov2WithRegistersXformersAttention,
+        )
+        # Iterate through all layers and swap attention modules
+        for layer in self.encoder.encoder.layer:
+            old_attn = layer.attention
+            new_attn = Dinov2WithRegistersXformersAttention(self.encoder.config)
+            # Copy weights from old attention to new
+            new_attn.attention.query.load_state_dict(old_attn.attention.query.state_dict())
+            new_attn.attention.key.load_state_dict(old_attn.attention.key.state_dict())
+            new_attn.attention.value.load_state_dict(old_attn.attention.value.state_dict())
+            new_attn.output.load_state_dict(old_attn.output.state_dict())
+            layer.attention = new_attn
 
     def export(self):
         if self._export:
