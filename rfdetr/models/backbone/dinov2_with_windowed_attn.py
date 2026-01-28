@@ -23,7 +23,40 @@ from transformers.modeling_outputs import (
     ImageClassifierOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
-from transformers.pytorch_utils import find_pruneable_heads_and_indices, prune_linear_layer
+try:
+    from transformers.pytorch_utils import find_pruneable_heads_and_indices, prune_linear_layer
+except ImportError:
+    try:
+        from transformers.modeling_utils import find_pruneable_heads_and_indices, prune_linear_layer
+    except ImportError:
+        # Provide fallback implementations for newer transformers versions
+        def find_pruneable_heads_and_indices(heads, n_heads, head_size, already_pruned_heads):
+            mask = torch.ones(n_heads, head_size)
+            heads = set(heads) - already_pruned_heads
+            for head in heads:
+                mask[head] = 0
+            mask = mask.view(-1).contiguous().eq(1)
+            index = torch.arange(len(mask))[mask].long()
+            return heads, index
+
+        def prune_linear_layer(layer, index, dim=0):
+            W = layer.weight.index_select(dim, index).clone().detach()
+            if layer.bias is not None:
+                if dim == 0:
+                    b = layer.bias[index].clone().detach()
+                else:
+                    b = layer.bias.clone().detach()
+            new_size = list(layer.weight.size())
+            new_size[dim] = len(index)
+            new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
+            new_layer.weight.requires_grad = False
+            new_layer.weight.copy_(W.contiguous())
+            new_layer.weight.requires_grad = True
+            if layer.bias is not None:
+                new_layer.bias.requires_grad = False
+                new_layer.bias.copy_(b.contiguous())
+                new_layer.bias.requires_grad = True
+            return new_layer
 from transformers.utils import (
     add_code_sample_docstrings,
     add_start_docstrings,
@@ -497,6 +530,54 @@ class Dinov2WithRegistersSdpaAttention(Dinov2WithRegistersAttention):
         self.attention = Dinov2WithRegistersSdpaSelfAttention(config)
 
 
+class Dinov2WithRegistersXformersSelfAttention(Dinov2WithRegistersSelfAttention):
+    """Memory-efficient attention using xFormers."""
+
+    def __init__(self, config: WindowedDinov2WithRegistersConfig) -> None:
+        super().__init__(config)
+        self.attention_probs_dropout_prob = config.attention_probs_dropout_prob
+
+    def forward(
+        self, hidden_states, head_mask: Optional[torch.Tensor] = None, output_attentions: bool = False
+    ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor]]:
+        # xFormers doesn't support JIT tracing or returning attention weights - fall back to eager
+        if output_attentions or torch.jit.is_tracing():
+            return super().forward(
+                hidden_states=hidden_states, head_mask=head_mask, output_attentions=output_attentions
+            )
+
+        from xformers.ops import memory_efficient_attention
+
+        mixed_query_layer = self.query(hidden_states)
+        key_layer = self.transpose_for_scores(self.key(hidden_states))
+        value_layer = self.transpose_for_scores(self.value(hidden_states))
+        query_layer = self.transpose_for_scores(mixed_query_layer)
+
+        # xFormers expects [B, N, H, D] not [B, H, N, D]
+        query_layer = query_layer.permute(0, 2, 1, 3).contiguous()
+        key_layer = key_layer.permute(0, 2, 1, 3).contiguous()
+        value_layer = value_layer.permute(0, 2, 1, 3).contiguous()
+
+        context_layer = memory_efficient_attention(
+            query_layer,
+            key_layer,
+            value_layer,
+            p=self.attention_probs_dropout_prob if self.training else 0.0,
+        )
+
+        new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+        context_layer = context_layer.view(new_context_layer_shape)
+
+        return context_layer, None
+
+
+class Dinov2WithRegistersXformersAttention(Dinov2WithRegistersAttention):
+    """Wrapper that uses xFormers memory-efficient self-attention."""
+    def __init__(self, config: WindowedDinov2WithRegistersConfig) -> None:
+        super().__init__(config)
+        self.attention = Dinov2WithRegistersXformersSelfAttention(config)
+
+
 class Dinov2WithRegistersLayerScale(nn.Module):
     def __init__(self, config) -> None:
         super().__init__()
@@ -579,6 +660,7 @@ class Dinov2WithRegistersSwiGLUFFN(nn.Module):
 DINOV2_WITH_REGISTERS_ATTENTION_CLASSES = {
     "eager": Dinov2WithRegistersAttention,
     "sdpa": Dinov2WithRegistersSdpaAttention,
+    "xformers": Dinov2WithRegistersXformersAttention,
 }
 
 

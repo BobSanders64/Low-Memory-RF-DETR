@@ -224,7 +224,9 @@ def einsum_flop_jit(
     # Inputs of einsum should be a list of length 2.
     # Inputs[0] stores the equation used for einsum.
     # Inputs[1] stores the list of input shapes.
-    assert len(inputs) == 2
+    if len(inputs) != 2:
+        # Unsupported einsum format, return 0 flops
+        return Counter({"einsum": 0})
     equation = inputs[0].toIValue()  # pyre-ignore
     # Get rid of white space in the equation string.
     equation = equation.replace(" ", "")

@@ -19,6 +19,7 @@ from rfdetr.detr import (
     RFDETRSeg2XLarge,
     RFDETRSegLarge,
     RFDETRSegMedium,
+    RFDETRSegIntermediate,
     RFDETRSegNano,
     RFDETRSegPreview,
     RFDETRSegSmall,

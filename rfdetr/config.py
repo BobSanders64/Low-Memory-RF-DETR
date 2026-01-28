@@ -41,6 +41,7 @@ class ModelConfig(BaseModel):
     segmentation_head: bool = False
     mask_downsample_ratio: int = 4
     license: str = "Apache-2.0"
+    attn_implementation: Literal["eager", "sdpa", "xformers"] = "sdpa"
 
     @field_validator("pretrain_weights", mode="after")
     @classmethod
@@ -183,6 +184,20 @@ class RFDETRSegSmallConfig(RFDETRBaseConfig):
     pretrain_weights: Optional[str] = "rf-detr-seg-small.pt"
     num_classes: int = 90
 
+class RFDETRSegIntermediateConfig(RFDETRBaseConfig):
+    segmentation_head: bool = True
+    out_feature_indexes: List[int] = [3, 6, 9, 12]
+    num_windows: int = 2
+    dec_layers: int = 5
+    patch_size: int = 12
+    resolution: int = 432
+    positional_encoding_size: int = 432 // 12
+    num_queries: int = 200
+    num_select: int = 200
+    pretrain_weights: Optional[str] = "rf-detr-seg-medium.pt"
+    num_classes: int = 90
+    attn_implementation: Literal[
+        "eager", "sdpa", "xformers"] = "xformers"
 
 class RFDETRSegMediumConfig(RFDETRBaseConfig):
     segmentation_head: bool = True
