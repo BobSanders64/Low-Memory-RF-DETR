@@ -23,6 +23,7 @@ from transformers.modeling_outputs import (
     ImageClassifierOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
+from xformers.ops import memory_efficient_attention
 try:
     from transformers.pytorch_utils import find_pruneable_heads_and_indices, prune_linear_layer
 except ImportError:
@@ -545,9 +546,6 @@ class Dinov2WithRegistersXformersSelfAttention(Dinov2WithRegistersSelfAttention)
             return super().forward(
                 hidden_states=hidden_states, head_mask=head_mask, output_attentions=output_attentions
             )
-
-        from xformers.ops import memory_efficient_attention
-
         mixed_query_layer = self.query(hidden_states)
         key_layer = self.transpose_for_scores(self.key(hidden_states))
         value_layer = self.transpose_for_scores(self.value(hidden_states))
